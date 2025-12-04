@@ -1,6 +1,6 @@
 # VLAN-Aware Virtual Switch Using Linux Bridge
 
-This document builds a VLAN-aware virtual switch on Linux using:
+This document captures the steps to build a VLAN-aware virtual switch on Linux using:
 
 - Linux network namespaces  
 - `veth` virtual Ethernet interfaces  
@@ -9,7 +9,6 @@ This document builds a VLAN-aware virtual switch on Linux using:
 - VLAN 73 configured on three ports  
 - Packet-level verification using `ping` and `socat`
 
----
 
 # 🧠 1. Architecture Overview
 
@@ -41,8 +40,6 @@ The Linux bridge acts as a real L2 switch:
 - Performs unicast forwarding when DMAC is known  
 - Does per-VLAN isolation  
 
----
-
 # 🧠 2. VLAN-aware bridge
 
 By default, a Linux bridge behaves like a simple dumb switch:
@@ -51,13 +48,14 @@ By default, a Linux bridge behaves like a simple dumb switch:
 - MAC table is global, not per-VLAN  
 - Unknown unicast floods across all ports  
 
-When we run:
+In the following command,
 
 ```bash
 sudo ip link set br0 type bridge vlan_filtering 1
 ```
 
-We activate **IEEE 802.1Q VLAN behavior**, meaning:
+the knob `vlan_filtering 1` activates **IEEE 802.1Q VLAN behavior**,
+and results in the following.
 
 ### ✔ 1. VLAN tagging is recognized  
 The bridge now parses VLAN tags in Ethernet frames.
@@ -66,18 +64,20 @@ The bridge now parses VLAN tags in Ethernet frames.
 FDB entries become:
 
 ```
-(MAC, VLAN) → port
+(VLAN, MAC) → port
 ```
 
-This is crucial: the same MAC can legally appear in two VLANs.
+A MAC is always learned in the scope of a specific VLAN.
+Hence, the VLAN is essential both for source MAC learning
+and destination MAC lookup.
 
 ### ✔ 3. Unknown flooding becomes VLAN-scoped
 Packets in VLAN 73 flood **only to ports in VLAN 73**.  
-veth3 (not in VLAN 73) sees **no frames**.
+veth3 (not in VLAN 73) does not see those packets.
 
 ### ✔ 4. Ports gain a PVID (Port VLAN ID)
-If a frame **arrives untagged**:  
-It is internally assigned to the port’s *PVID* (default VLAN).
+If a frame **arrives untagged**,  
+it is internally assigned to the port’s *PVID* (default VLAN).
 
 ### ✔ 5. Outbound tagging rules apply  
 - Access ports → send untagged  
@@ -86,7 +86,6 @@ It is internally assigned to the port’s *PVID* (default VLAN).
 
 This mirrors real hardware switch behavior.
 
----
 
 # 🔧 3. Cleanup (Optional)
 
@@ -105,9 +104,20 @@ sudo ip netns del h3 2>/dev/null
 
 This ensures no leftover interfaces interfere.
 
----
+Use the script `cleanup.sh` to run these cleanup steps.
 
-# 🔧 4. Create veth Pairs
+# 🔧 4. Configuration
+
+## 🔧 4.1 Create Network Namespaces
+
+```bash
+sudo ip netns add h0
+sudo ip netns add h1
+sudo ip netns add h2
+sudo ip netns add h3
+```
+
+## 🔧 4.2 Create veth Pairs
 
 Each veth pair is a virtual Ethernet cable.
 
@@ -118,23 +128,11 @@ sudo ip link add veth2 type veth peer name veth2p
 sudo ip link add veth3 type veth peer name veth3p
 ```
 
-- `veth0` connects to bridge (switch port 0)  
+- `veth0` connects to bridge (switch port 0)  (steps below)
 - `veth0p` goes inside namespace `h0`  
 
----
 
-# 🔧 5. Create Network Namespaces
-
-```bash
-sudo ip netns add h0
-sudo ip netns add h1
-sudo ip netns add h2
-sudo ip netns add h3
-```
-
----
-
-# 🔧 6. Move Host Interfaces into Namespaces
+## 🔧 4.3 Move Host Interfaces into Namespaces
 
 ```bash
 sudo ip link set veth0p netns h0
@@ -145,9 +143,8 @@ sudo ip link set veth3p netns h3
 
 After this, veth0p–veth3p disappear from root namespace.
 
----
 
-# 🔧 7. Bring Up Loopback Interfaces
+## 🔧 4.4 Bring Up Loopback Interfaces
 
 ```bash
 sudo ip netns exec h0 ip link set lo up
@@ -156,9 +153,8 @@ sudo ip netns exec h2 ip link set lo up
 sudo ip netns exec h3 ip link set lo up
 ```
 
----
 
-# 🔧 8. Assign IP Addresses
+## 🔧 4.5 Assign IP Addresses to virtual host veth*p interfaces
 
 ```bash
 sudo ip netns exec h0 ip addr add 10.73.0.1/24 dev veth0p
@@ -167,9 +163,8 @@ sudo ip netns exec h2 ip addr add 10.73.0.3/24 dev veth2p
 sudo ip netns exec h3 ip addr add 10.73.0.4/24 dev veth3p
 ```
 
----
 
-# 🔧 9. Bring Host Interfaces UP
+## 🔧 4.6 Bring Host Interfaces UP
 
 ```bash
 sudo ip netns exec h0 ip link set veth0p up
@@ -178,17 +173,15 @@ sudo ip netns exec h2 ip link set veth2p up
 sudo ip netns exec h3 ip link set veth3p up
 ```
 
----
 
-# 🔧 10. Create Linux Bridge
+## 🔧 4.7 Create Linux Bridge
 
 ```bash
 sudo ip link add br0 type bridge
 ```
 
----
 
-# 🔧 11. Enable VLAN Filtering (the key step)
+## 🔧 4.8 Enable VLAN Filtering (the key step)
 
 ```bash
 sudo ip link set br0 type bridge vlan_filtering 1
@@ -196,9 +189,10 @@ sudo ip link set br0 type bridge vlan_filtering 1
 
 This step transforms `br0` into a *true VLAN-switch*.
 
----
 
-# 🔧 12. Attach Switch-Side veth Interfaces
+## 🔧 4.9. Attach Switch-Side veth Interfaces
+
+These are the other ends of the virtual cables created above.
 
 ```bash
 sudo ip link set veth0 master br0
@@ -207,9 +201,8 @@ sudo ip link set veth2 master br0
 sudo ip link set veth3 master br0
 ```
 
----
 
-# 🔧 13. Bring Up Ports and Bridge
+## 🔧 4.10. Bring Up Ports and Bridge
 
 ```bash
 sudo ip link set veth0 up
@@ -219,9 +212,8 @@ sudo ip link set veth3 up
 sudo ip link set br0 up
 ```
 
----
 
-# 🔧  14. Configure VLAN 73 on Access Ports
+## 🔧  4.11 Configure VLAN 73 on Access Ports
 
 ```bash
 sudo bridge vlan add dev veth0 vid 73 pvid untagged
@@ -238,9 +230,11 @@ sudo bridge vlan add dev veth2 vid 73 pvid untagged
 ### Why veth3 is left out?
 Because we want a namespace **not in VLAN 73** to verify VLAN isolation behavior.
 
----
+You may use the accompanying script, `configure.sh`, to perform
+these configuration steps.
 
-# 🔍 15. Verify VLAN Membership
+# 🔍 5. Verification
+## 🔍 5.1 Verify VLAN Membership
 
 ```bash
 bridge vlan show
@@ -260,30 +254,28 @@ This tells us:
 - veth0–2 belong to VLAN 73  
 - veth3 belongs to no VLAN → isolated  
 
----
 
-# 🧪 16. Test Connectivity
+## 🧪 5.2 Test Connectivity
 
-## 16.1 VLAN-internal pings (should succeed)
+### 5.2.1 VLAN-internal pings (should succeed)
 
 ```bash
 sudo ip netns exec h0 ping -c 2 10.73.0.2
 sudo ip netns exec h1 ping -c 2 10.73.0.3
 ```
 
-### Why this works?
+#### Why this works?
 - ARP from h0 floods only within VLAN 73.  
 - h1/h2 reply; MACs are learned; ICMP succeeds.
 
----
 
-## 16.2 Cross-VLAN ping (should fail)
+### 5.2.2 Cross-VLAN ping (should fail)
 
 ```bash
 sudo ip netns exec h0 ping -c 2 10.73.0.4
 ```
 
-### Why does h0 → h3 fail?
+#### Why does h0 → h3 fail?
 
 1. ARP request from h0 is placed in **VLAN 73**.
 2. Bridge floods ARP request only to VLAN 73 ports.
@@ -293,9 +285,8 @@ sudo ip netns exec h0 ping -c 2 10.73.0.4
 
 This demonstrates proper VLAN isolation.
 
----
 
-# 🧪 17. UDP Verification Using socat
+## 🧪 5.3 UDP Verification Using socat
 
 ### Listener on h0
 
@@ -314,9 +305,8 @@ Expected:
 - h0 prints: `hello from h1`
 - Bridge logs show proper flooding/unicast inside VLAN 73  
 
----
 
-# 🔍 18. Inspect MAC Learning
+## 🔍 5.4 Inspect MAC Learning
 
 After some traffic:
 
@@ -333,14 +323,13 @@ aa:bb:cc:dd:ee:03 dev veth2 vlan 73 master br0
 ```
 
 ### Important insight:
-FDB entries are now **(MAC, VLAN)** pairs.
+FDB entries are now **(VLAN, MAC) -> port** pairs.
 
 This prevents:
 - Cross-VLAN MAC communication
 
----
 
-# 🔍 19. Optional: Packet Sniffing
+## 🔍 5.5 Optional: Packet Sniffing
 
 ```bash
 sudo ip netns exec h0 tcpdump -i veth0p -nne
@@ -354,9 +343,9 @@ Observe:
 - Unicast replies  
 - VLAN-scoped flooding  
 
----
+Use the script `verify.sh` to run these verification steps.
 
-# 🎉 20. Summary
+# 🎉 6 Summary
 
 This guide constructs a simplistic VLAN-aware L2 switch right out of Linux:
 

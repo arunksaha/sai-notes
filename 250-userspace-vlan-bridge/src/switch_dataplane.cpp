@@ -63,12 +63,12 @@ MacString macToString(MacAddress const mac) {
         result.data(),       // The underlying char* buffer
         result.size(),       // The size of the buffer (18)
         "%02x:%02x:%02x:%02x:%02x:%02x",
-        (unsigned int)((mac >> 40) & 0xFF), // Byte 1 (most significant)
-        (unsigned int)((mac >> 32) & 0xFF), // Byte 2
-        (unsigned int)((mac >> 24) & 0xFF), // Byte 3
-        (unsigned int)((mac >> 16) & 0xFF), // Byte 4
-        (unsigned int)((mac >> 8) & 0xFF),  // Byte 5
-        (unsigned int)(mac & 0xFF)          // Byte 6 (least significant)
+        static_cast<unsigned int>((mac >> 40) & 0xFF), // Byte 1 (most significant)
+        static_cast<unsigned int>((mac >> 32) & 0xFF), // Byte 2
+        static_cast<unsigned int>((mac >> 24) & 0xFF), // Byte 3
+        static_cast<unsigned int>((mac >> 16) & 0xFF), // Byte 4
+        static_cast<unsigned int>((mac >> 8) & 0xFF),  // Byte 5
+        static_cast<unsigned int>(mac & 0xFF)          // Byte 6 (least significant)
     );
 
     // The snprintf function automatically null-terminates the string.
@@ -125,7 +125,7 @@ void initialize_fds(int* fds, struct pollfd* pfd) {
         sll.sll_protocol = htons(ETH_P_ALL);
         sll.sll_ifindex  = ifindex;
 
-        if (bind(fds[port], (struct sockaddr*)&sll, sizeof(sll)) < 0) {
+        if (bind(fds[port], reinterpret_cast<struct sockaddr*>(&sll), sizeof(sll)) < 0) {
             perror("bind");
             exit(1);
         }
@@ -207,7 +207,7 @@ void run_dataplane()
         if (ret == 0)
             continue;
 
-        for (int port = 0; port < NumSwitchPorts; port++) {
+        for (PortId port = 0; port < NumSwitchPorts; port++) {
             if (!(pfd[port].revents & POLLIN))
                 continue;
 
@@ -252,7 +252,7 @@ void run_dataplane()
                 VlanMemberList members;
                 if (!g_switch_state.getVlanMembers(vlan, members)) {
                     // No VLAN config, flood to ALL ports except ingress port
-                    for (int p = 0; p < NumSwitchPorts; p++) {
+                    for (PortId p = 0; p < NumSwitchPorts; p++) {
                         if (p != port) {
                             sendPacket(fds[p], buf, n, p, dmac, smac, ethtype);
                         }

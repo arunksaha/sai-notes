@@ -43,7 +43,7 @@ void SwitchState::createVlan(VlanId vlan)
 void SwitchState::addVlanMember(VlanId vlan, PortId port, bool /*tagged*/)
 {
     assert(vlan <= MaxVlanId);
-    assert(port < numPorts_);
+    assert(static_cast<int>(port) < numPorts_);
 
     std::unique_lock lock(mtx_);
 
@@ -74,7 +74,7 @@ bool SwitchState::getVlanMembers(VlanId vlan, VlanMemberList& outMembers) const
 std::pair<bool, bool> SwitchState::learnMac(VlanId vlan, MacAddress mac, PortId port)
 {
     assert(vlan <= MaxVlanId);
-    assert(port < numPorts_);
+    assert(static_cast<int>(port) < numPorts_);
 
     std::unique_lock lock(mtx_);
 
@@ -119,7 +119,7 @@ void SwitchState::dumpFdb(FdbTable& outTable) const
 // -----------------------------------------------------------------------------
 void SwitchState::setPortPvid(PortId port, VlanId pvid)
 {
-    assert(port < numPorts_);
+    assert(static_cast<int>(port) < numPorts_);
     assert(pvid <= MaxVlanId);
 
     std::unique_lock lock(mtx_);
@@ -128,7 +128,7 @@ void SwitchState::setPortPvid(PortId port, VlanId pvid)
 
 bool SwitchState::getPortPvid(PortId port, VlanId& outPvid) const
 {
-    assert(port < numPorts_);
+    assert(static_cast<int>(port) < numPorts_);
 
     std::shared_lock lock(mtx_);
 

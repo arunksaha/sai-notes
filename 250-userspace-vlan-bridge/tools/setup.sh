@@ -207,7 +207,7 @@ verify_environment() {
     echo "=================================="
     echo " Environment ready for uswitch."
     echo " Start switch with:"
-    echo "      sudo ./uswitch"
+    echo "      sudo build/src/userspace_switch"
     echo "=================================="
 }
 

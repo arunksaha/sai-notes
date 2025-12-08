@@ -1,7 +1,7 @@
 # Userspace VLAN Switch with SAI  
 This is Part 3 of the Experimental SAI Project.
 
-This project extends the userspace VLAN switch by adding a minimal SAI implementation and a management-plane thread. The dataplane still runs entirely in user space, but now SAI callbacks are wired up so MAC-learn events flow into a vendor-style API surface.
+This project extends the userspace VLAN switch by adding a minimalist SAI implementation and a management-plane thread. The dataplane still runs entirely in user space, but now SAI callbacks are wired up so MAC-learn events flow into a vendor-style API surface. The SAI layer is intentionally small: just enough SWITCH and VLAN plumbing to demonstrate learn notifications and control-plane hooks without a full feature matrix.
 
 ## Goal and Motivation
 
@@ -48,11 +48,24 @@ Central in-memory model for VLAN membership, MAC table, and port PVIDs. Shared b
 
 ### 3. Management Plane (`src/mgmtplane/switch_mgmtplane.cpp`)
 
-Runs alongside the dataplane, initializes SAI, registers for FDB notifications, and logs callbacks from the control-plane view.
+Runs alongside the dataplane in its own thread, initializes SAI, registers for FDB notifications,
+and logs callbacks from the control-plane view.
 
 ### 4. SAI Shim (`libsai/`)
 
-Minimal vendor-style SAI implementation exposing SWITCH and VLAN API tables. Provides `sai_inform_mac_learn`, the hook the dataplane triggers on MAC learning, which then surfaces as FDB events to the management plane.
+The project contains a minimalist SAI implementation. 
+
+The APIs demonstrated are the following
+
+ - Switch API: `create_switch`
+
+ - VLAN API: (a) `create_vlan`, and (b) `create_vlan_member`
+
+ - Callback: `sai_fdb_event_notification_fn`
+
+> Author's note: I was halfway in implementing a different design where the SAI library is loaded into a separate (CLI-like) process, and connects to the switch using a GRPC channel.
+> However, to keep things simple and focus on the main ideas, I discarded that path and chose to pursue the simplistic approach as captured in this document.
+
 
 ## Directory Structure
 
@@ -143,24 +156,81 @@ $ sudo build/src/userspace_switch
 
 ## Verification
 
-In one terminal, run `tcpdump` on an egress port (example: `sudo tcpdump -i veth1`).
+In first terminal, run `tcpdump` on an egress port (example: `sudo tcpdump -i veth1`).
 
-In another terminal, ping from h0 to h1:
+In second terminal, run the switch
+```
+$ sudo build/src/userspace_switch 
+[MAIN] Starting uswitch...
+[MGMT] Initializing SAI...
+[MGMT] SWITCH API ready
+[MGMT] VLAN API ready
+[MGMT] Switch created, switch_id = 6b8b4567327b23c6
+[MGMT] VLAN 73 created, vlan_object_id = 3000000000049
+[MGMT] VLAN member added: port 0 -> vlan 73, member_oid = 2000000000000
+[MGMT] VLAN member added: port 1 -> vlan 73, member_oid = 2000000000001
+[MGMT] VLAN member added: port 3 -> vlan 73, member_oid = 2000000000003
+[MGMT] Initialization complete
+[DP] port=0 bound to veth0
+[DP] port=1 bound to veth1
+[DP] port=2 bound to veth2
+[DP] port=3 bound to veth3
+
+```
+
+### Sample output
+
+The following is a sample virtual host information after running `setup.sh`.
+It shows the IP addresses and MAC addresses of all the virtual hosts.
+```
+# dell; Mon Dec  8 01:34:02 PM PST 2025
+h0,veth0p,10.73.0.1,9e:ad:29:60:fa:90
+h1,veth1p,10.73.0.2,82:f7:fb:b4:b4:6e
+h2,veth2p,10.73.0.3,de:aa:9e:1c:d8:3a
+h3,veth3p,10.73.0.4,3e:80:35:9c:73:0a
+```
+
+Sample `ping` output.
 ```
 $ sudo ip netns exec h0 ping -c 2 10.73.0.2
+PING 10.73.0.2 (10.73.0.2) 56(84) bytes of data.
+64 bytes from 10.73.0.2: icmp_seq=1 ttl=64 time=1.49 ms
+64 bytes from 10.73.0.2: icmp_seq=2 ttl=64 time=0.486 ms
+
+--- 10.73.0.2 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+rtt min/avg/max/mdev = 0.486/0.988/1.490/0.502 ms
 ```
 
-You should see dataplane Rx/Tx logs and an FDB learn callback from the management plane similar to:
+Following is the console putput at the terminal running the switch right after the `ping`.
 ```
-[MAIN] Starting uswitch...
-[DP] port=0 bound to veth0
-...
- +LEARN vlan = 1, mac = be:d3:45:41:83:e4 at port = 0
-[MGMT] FDB event callback, count=1
-  [0] event=LEARNED mac=be:d3:45:41:83:e4 bv_id=0x100000000000000 switch=0 attrs=2
-```
+[Rx] port = 0, dmac = ff:ff:ff:ff:ff:ff, smac = 9e:ad:29:60:fa:90, ethtype = 0x0806
+ +LEARN vlan = 73, mac = 9e:ad:29:60:fa:90 at port = 0
+  [Tx] port = 1, dmac = ff:ff:ff:ff:ff:ff, smac = 9e:ad:29:60:fa:90, ethtype = 0x0806
+  [Tx] port = 3, dmac = ff:ff:ff:ff:ff:ff, smac = 9e:ad:29:60:fa:90, ethtype = 0x0806
+== Current FDB ==
+vlan=73 mac=9e:ad:29:60:fa:90 port=0
 
-MAC addresses and IPs in `tcpdump`, `ping`, and switch output should match `hostinfo.csv`.
+
+[Rx] port = 1, dmac = 9e:ad:29:60:fa:90, smac = 82:f7:fb:b4:b4:6e, ethtype = 0x0806
+ +LEARN vlan = 73, mac = 82:f7:fb:b4:b4:6e at port = 1
+  [Tx] port = 0, dmac = 9e:ad:29:60:fa:90, smac = 82:f7:fb:b4:b4:6e, ethtype = 0x0806
+== Current FDB ==
+vlan=73 mac=82:f7:fb:b4:b4:6e port=1
+vlan=73 mac=9e:ad:29:60:fa:90 port=0
+```
+The above output shows receipt (Rx) and transmiission (Tx) of frames, learning events (+LEARN),
+and FDB snapshots after processing frames. The FDB snapshot shows the MACs of `h0` and `h1` are learned in VLAN 73 against their correct ports (0 and 1 respectively).
+
+Following is the console output at the terminal running `tcpdump`.
+```
+13:42:43.206522 ARP, Request who-has 10.73.0.2 tell 10.73.0.1, length 28
+13:42:43.206575 ARP, Reply 10.73.0.2 is-at 82:f7:fb:b4:b4:6e (oui Unknown), length 28
+13:42:43.207306 IP 10.73.0.1 > 10.73.0.2: ICMP echo request, id 62270, seq 1, length 64
+13:42:43.207354 IP 10.73.0.2 > 10.73.0.1: ICMP echo reply, id 62270, seq 1, length 64
+13:42:44.207544 IP 10.73.0.1 > 10.73.0.2: ICMP echo request, id 62270, seq 2, length 64
+13:42:44.207593 IP 10.73.0.2 > 10.73.0.1: ICMP echo reply, id 62270, seq 2, length 64
+```
 
 ## FAQ
 

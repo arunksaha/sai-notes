@@ -51,6 +51,9 @@ Central in-memory model for VLAN membership, MAC table, and port PVIDs. Shared b
 Runs alongside the dataplane in its own thread, initializes SAI, registers for FDB notifications,
 and logs callbacks from the control-plane view.
 
+The management plane uses the SAI APIs to create a VLAN (73) and add 3 ports to it.
+It also registers a callback function for SAI MAC learning events.
+
 ### 4. SAI Shim (`libsai/`)
 
 The project contains a minimalist SAI implementation. 
@@ -218,9 +221,22 @@ vlan=73 mac=9e:ad:29:60:fa:90 port=0
 == Current FDB ==
 vlan=73 mac=82:f7:fb:b4:b4:6e port=1
 vlan=73 mac=9e:ad:29:60:fa:90 port=0
+
+[MGMT] FDB event callback, count=1
+  [0] event=LEARNED mac=9e:ad:29:60:fa:90 bv_id=3000000000049 switch=0 attrs=2
+  [Tx] port = 1, dmac = 82:f7:fb:b4:b4:6e, smac = 9e:ad:29:60:fa:90, ethtype = 0x0800
+
+[MGMT] FDB event callback, count=1
+  [0] event=LEARNED mac=9e:ad:29:60:fa:90 bv_id=3000000000049 switch=0 attrs=2
+  [Tx] port = 1, dmac = 82:f7:fb:b4:b4:6e, smac = 9e:ad:29:60:fa:90, ethtype = 0x0800
+
 ```
 The above output shows receipt (Rx) and transmiission (Tx) of frames, learning events (+LEARN),
-and FDB snapshots after processing frames. The FDB snapshot shows the MACs of `h0` and `h1` are learned in VLAN 73 against their correct ports (0 and 1 respectively).
+and FDB snapshots after processing frames.
+ - The first frame is flooded only to the the remaining ports (1 and 3) in the vlan (73).
+ - The second frame (response to `h0`) is forwarded correctly only to `h0` at port 0; there was no flooding.
+ - The FDB snapshot from DP shows the MACs of `h0` and `h1` are learned in VLAN 73 against their correct ports (0 and 1 respectively).
+ - Finally, the captured snippet shows the FDB "LEARNED" event callback invoked in the management plane.
 
 Following is the console output at the terminal running `tcpdump`.
 ```

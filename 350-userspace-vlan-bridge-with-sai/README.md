@@ -54,11 +54,16 @@ and logs callbacks from the control-plane view.
 The management plane uses the SAI APIs to create a VLAN (73) and add 3 ports to it.
 It also registers a callback function for SAI MAC learning events.
 
-### 4. SAI Shim (`libsai/`)
+### 4. SAI library (`libsai/`)
 
 The project contains a minimalist SAI implementation. 
 
-The APIs demonstrated are the following
+The SAI repository is hosted at https://github.com/opencomputeproject/SAI.
+The header files to include are in the `inc` directory: https://github.com/opencomputeproject/SAI/tree/master/inc.
+
+A few of those header files that are necessary for this project are copied at https://github.com/arunksaha/sai-notes/tree/main/350-userspace-vlan-bridge-with-sai/libsai/inc.
+
+In this project, the following SAI APIs are demonstrated:
 
  - Switch API: `create_switch`
 
